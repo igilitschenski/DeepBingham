@@ -163,8 +163,6 @@ class BinghamDistribution(object):
             Array with random samples.
         """
 
-        samples = np.zeros([n, self._dim])
-
         a = -np.dot(
             self._param_m, np.dot(np.diag(self._param_z), self._param_m.T))
 
@@ -177,26 +175,31 @@ class BinghamDistribution(object):
         omega = np.eye(self._dim) + 2. * a / b
         mbstar = np.exp(-(self._dim - b) / 2.) \
             * (self._dim / b)**(self._dim / 2.)
+        
+        def sample_normal(n):
+            return np.random.multivariate_normal(
+                np.zeros(self._dim), np.linalg.inv(omega), n)
+        
+        def fb_likelihood_vec(x):
+            return np.exp(np.sum(-x @ a * x, axis=1))
 
-        def fb_likelihood(x):
-            return np.exp(np.dot(-x, np.dot(a, x.T)))
+        def acg_likelihood_vec(x):
+            return np.sum(x @ omega * x, axis=1) ** (-self._dim / 2.)
+        
+        cur_sample = np.zeros([n, self._dim])
+        accepted = np.zeros(n, dtype=bool)
+        while not np.all(accepted):
+            cur_size = n - np.sum(accepted)
+            candidate = sample_normal(cur_size)
+            candidate = candidate / np.linalg.norm(candidate, axis=1)[:, None]
 
-        def acg_likelihood(x):
-            return np.dot(x, np.dot(omega, x.T)) ** (-self._dim / 2.)
+            w = np.random.uniform(size=cur_size)
+            accept = w < fb_likelihood_vec(candidate) / (mbstar * acg_likelihood_vec(candidate))
+        
+            cur_sample[~accepted] = candidate
+            accepted[~accepted] = accept
 
-        current_sample = 0
-        while current_sample < n:
-            candidate = np.random.multivariate_normal(
-                np.zeros(self._dim), np.linalg.inv(omega), 1)
-            candidate = candidate / np.linalg.norm(candidate)
-
-            w = np.random.uniform()
-            if w < fb_likelihood(candidate) / (mbstar *
-                                               acg_likelihood(candidate)):
-                samples[current_sample] = candidate
-                current_sample += 1
-
-        return samples
+        return cur_sample
 
     def second_moment(self):
         """Calculate covariance matrix of Bingham distribution.
